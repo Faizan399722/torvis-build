@@ -1,0 +1,16 @@
+# TORVIS BUILD 19 — AppVeyor (Windows)
+# Free plan, public repos only. Same PyInstaller build as build.bat / GitHub / GitLab.
+image: Visual Studio 2022
+platform: x64
+configuration: Release
+
+install:
+  - python -m pip install --upgrade pip
+  - pip install -r requirements.txt
+
+build_script:
+  - pyinstaller --noconfirm --onefile --windowed --name JARVIS --icon icon.ico --add-data "jarvis-hud.html;." --add-data "icon.ico;." --add-data "icon.png;." --add-data "backend.py;." --add-data "jarvis_build14.py;." --add-data "jarvis_build15.py;." --add-data "jarvis_build16.py;." --add-data "jarvis_build17.py;." --add-data "jarvis_build18.py;." --add-data "jarvis_build19.py;." --add-data "requirements.txt;." --collect-all webview --collect-all pystray --collect-all pyttsx3 --hidden-import pyttsx3.drivers.sapi5 --hidden-import speech_recognition --hidden-import pyaudio --hidden-import pystray --hidden-import comtypes --hidden-import PIL --hidden-import cv2 --hidden-import googleapiclient.discovery --hidden-import googleapiclient.http --hidden-import google.oauth2.credentials --hidden-import google_auth_oauthlib.flow --hidden-import pyautogui --hidden-import backend --hidden-import jarvis_build14 --hidden-import jarvis_build15 --hidden-import jarvis_build16 --hidden-import jarvis_build17 --hidden-import jarvis_build18 --hidden-import jarvis_build19 jarvis.py
+
+artifacts:
+  - path: dist\JARVIS.exe
+    name: JARVIS-exe
