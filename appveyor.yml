@@ -5,6 +5,8 @@ platform: x64
 configuration: Release
 
 install:
+  - set PATH=C:\Python312-x64;C:\Python312-x64\Scripts;%PATH%
+  - python --version
   - python -m pip install --upgrade pip
   - pip install -r requirements.txt
 
