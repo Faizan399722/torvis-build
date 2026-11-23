@@ -1,166 +1,182 @@
 {
-  "version": "auto-py-to-exe-configuration_v1",
-  "pyinstallerOptions": [
-    {
-      "optionDest": "noconfirm",
-      "value": true
-    },
-    {
-      "optionDest": "filenames",
-      "value": "jarvis.py"
-    },
-    {
-      "optionDest": "onefile",
-      "value": true
-    },
-    {
-      "optionDest": "console",
-      "value": false
-    },
-    {
-      "optionDest": "icon_file",
-      "value": "icon.ico"
-    },
-    {
-      "optionDest": "name",
-      "value": "JARVIS"
-    },
-    {
-      "optionDest": "datas",
-      "value": "jarvis-hud.html;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "icon.ico;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "icon.png;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "backend.py;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "jarvis_build14.py;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "jarvis_build15.py;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "jarvis_build16.py;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "jarvis_build17.py;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "jarvis_build18.py;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "jarvis_build19.py;."
-    },
-    {
-      "optionDest": "datas",
-      "value": "requirements.txt;."
-    },
-    {
-      "optionDest": "collect_all",
-      "value": "webview"
-    },
-    {
-      "optionDest": "collect_all",
-      "value": "pystray"
-    },
-    {
-      "optionDest": "collect_all",
-      "value": "pyttsx3"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "pyttsx3.drivers.sapi5"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "speech_recognition"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "pyaudio"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "pystray"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "PIL"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "comtypes"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "cv2"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "googleapiclient.discovery"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "googleapiclient.http"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "google.oauth2.credentials"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "google_auth_oauthlib.flow"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "pyautogui"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "backend"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "jarvis_build14"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "jarvis_build15"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "jarvis_build16"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "jarvis_build17"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "jarvis_build18"
-    },
-    {
-      "optionDest": "hiddenimports",
-      "value": "jarvis_build19"
-    }
-  ],
-  "nonPyinstallerOptions": {
-    "increaseRecursionLimit": true,
-    "manualArguments": "",
-    "outputDirectory": ""
+ "version": "auto-py-to-exe-configuration_v1",
+ "pyinstallerOptions": [
+  {
+   "optionDest": "noconfirm",
+   "value": true
+  },
+  {
+   "optionDest": "filenames",
+   "value": "jarvis.py"
+  },
+  {
+   "optionDest": "onefile",
+   "value": true
+  },
+  {
+   "optionDest": "console",
+   "value": false
+  },
+  {
+   "optionDest": "icon_file",
+   "value": "icon.ico"
+  },
+  {
+   "optionDest": "name",
+   "value": "JARVIS"
+  },
+  {
+   "optionDest": "datas",
+   "value": "jarvis-hud.html;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "icon.ico;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "icon.png;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "backend.py;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "jarvis_build14.py;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "jarvis_build15.py;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "jarvis_build16.py;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "jarvis_build17.py;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "jarvis_build18.py;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "jarvis_build19.py;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "requirements.txt;."
+  },
+  {
+   "optionDest": "collect_all",
+   "value": "webview"
+  },
+  {
+   "optionDest": "collect_all",
+   "value": "pystray"
+  },
+  {
+   "optionDest": "collect_all",
+   "value": "pyttsx3"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "pyttsx3.drivers.sapi5"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "speech_recognition"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "pyaudio"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "pystray"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "PIL"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "comtypes"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "cv2"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "googleapiclient.discovery"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "googleapiclient.http"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "google.oauth2.credentials"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "google_auth_oauthlib.flow"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "pyautogui"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "backend"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "jarvis_build14"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "jarvis_build15"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "jarvis_build16"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "jarvis_build17"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "jarvis_build18"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "jarvis_build19"
+  },
+  {
+   "optionDest": "datas",
+   "value": "jarvis_build20.py;."
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "jarvis_build20"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "edge_tts"
+  },
+  {
+   "optionDest": "collect_all",
+   "value": "edge_tts"
   }
+ ],
+ "nonPyinstallerOptions": {
+  "increaseRecursionLimit": true,
+  "manualArguments": "",
+  "outputDirectory": ""
+ }
 }

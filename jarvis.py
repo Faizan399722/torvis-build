@@ -65,6 +65,11 @@ try:
 except Exception:  # noqa: BLE001 — pure-logic module, always present in the zip
     b19 = None
 
+try:
+    import jarvis_build20 as b20
+except Exception:  # noqa: BLE001 — pure-logic module, always present in the zip
+    b20 = None
+
 # ------------------------------------------------------------------ files ---
 def bundled_file(filename):
     """Path to a file bundled into the .exe (PyInstaller _MEIPASS) or
@@ -98,7 +103,7 @@ def _config_file():
 
 DEFAULTS = {"provider": "anthropic", "api_key": "", "model": "", "base_url": "",
             "protected_paths": [], "voice_enabled": True,
-            "voice_name_contains": "", "voice_rate": 165,
+            "voice_name_contains": "", "voice_rate": 150,
             "voice_name": "", "voice_pitch": 1.0,
             "wake_word_enabled": False,
             "pause_threshold": 0.8, "listening_sensitivity": 0.5,
@@ -109,10 +114,14 @@ DEFAULTS = {"provider": "anthropic", "api_key": "", "model": "", "base_url": "",
             "autopilot_enabled": False, "youtube_autopilot_enabled": False,
             "voice_per_language": {},
             "screen_watch_enabled": False, "screen_watch_interval_sec": 90}
-VOICE_RATE_DEFAULT = 165   # calm TORVIS register (NOVA used a brisker 170)
+VOICE_RATE_DEFAULT = 150   # BUILD 20: slower, clearer pronunciation
+# (was 165 — too fast, and fast speech is what made Urdu/Roman Urdu
+# hard to understand). 150 is ~0.9x the old rate; a saved config
+# keeps its own rate, new installs get 150.
 VOICE_RATE_MIN, VOICE_RATE_MAX = 120, 220
 SCREEN_WATCH_MIN_INTERVAL = 30     # seconds — never look more often
 SCREEN_WATCH_DEFAULT_INTERVAL = 90
+# BUILD 20 — TORVIS: SILENT FALLBACK, NO OVERLOAD LINE, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 19 — TORVIS: FULL AUTOPILOT NO-CONFIRM, YOUTUBE AUTOPILOT, CHANNEL NICHE, SITE WATCHER, MULTILINGUAL VOICE, HUMAN-LIKE SPEAKING, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 18 — TORVIS: CLAP WAKE, GESTURE CONTROL, HUD MODE, TASKBAR + TRAY, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 16 — TORVIS (formerly JARVIS): WORLD-BEST VOICE, LOW LATENCY, BARGE-IN, NEURAL TONE, ACCURATE LISTENING, MEMORY, CALENDAR BOOKING, GUARDRAILS, PRIVACY LOCAL-ONLY, OBSERVABILITY, ETHICAL SECURITY, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
@@ -244,11 +253,36 @@ def log_speak(line):
     except Exception:  # noqa: BLE001
         pass
 
+def _strip_fallback_note(text):
+    """BUILD 20 safety net: strip any leading fallback-switch note
+    from a brain reply before it is shown or spoken, so an old-style
+    note can never be the first thing TORVIS says. Drops leading
+    lines that mention the main brain being overloaded / quota-finished
+    / unreachable and switching to a fallback brain. Pure function."""
+    t = str(text or "")
+    while True:
+        lines = t.lstrip().splitlines()
+        if not lines:
+            return ""
+        first = lines[0].strip()
+        low = first.lower()
+        is_note = (
+            first.startswith("↪")
+            or ("switched to" in low and "fallback brain" in low)
+            or low.startswith("main brain is overloaded")
+            or low.startswith("main brain's daily quota")
+            or ("main brain" in low and "fallback brain" in low)
+        )
+        if not is_note:
+            return t.strip()
+        t = "\n".join(lines[1:])
+
+
 def calm_reply(text):
     """Make a brain reply safe to show a frustrated user: keep the calm
     human message, cut any raw '(Details: ...)' error dump the brain
     attached (the full text still goes to jarvis.log). Pure function."""
-    t = str(text or "")
+    t = _strip_fallback_note(text)
     cut = t.find("\n(Details:")
     if cut != -1:
         t = t[:cut]
@@ -297,7 +331,10 @@ NO_MIC_MSG = ("🎙 No microphone found/working on this PC — "
 def clean_for_speech(text, limit=400):
     """Strip markdown/code so the spoken reply sounds like a human talking
     (same cleaning NOVA applies before speaking)."""
-    t = re.sub(r"```.*?```", " ", str(text or ""), flags=re.S)
+    # BUILD 20: strip a leading fallback note before speaking, so it
+    # can never be spoken first even if an old reply carries one.
+    t = _strip_fallback_note(text)
+    t = re.sub(r"```.*?```", " ", str(t or ""), flags=re.S)
     t = re.sub(r"`[^`]*`", " ", t)
     t = re.sub(r"https?://\S+", " ", t)
     t = re.sub(r"[#>*_~|⛔⚠]", " ", t)
@@ -343,17 +380,29 @@ def _voice_looks_female(v):
     n = (getattr(v, "name", "") or "").lower()
     return any(f in n for f in _KNOWN_FEMALE)
 
+def _voice_is_neural(v):
+    """True when a voice is a neural voice (Microsoft 'Online
+    (Natural)', Edge '*Neural') rather than an old robotic SAPI
+    voice (David / Zira / Hazel). Pure."""
+    n = (getattr(v, "name", "") or "").lower()
+    return "neural" in n or "natural" in n or "online" in n
+
+
 def pick_voice(voices, name_contains=""):
     """Choose the most TORVIS-like voice from pyttsx3 voice objects
     (anything with .name / .lang / .id). Pure function — no audio — so
     the preference order is unit-testable:
 
       1. a voice whose name matches the user's voice_name_contains,
-      2. British/UK voices matching the calm-male preference list,
-      3. any English voice matching the preference list (e.g. David),
-      4. any English voice marked male (and not female),
-      5. any English voice that doesn't look female,
-      6. the first voice there is.
+      2. BUILD 20: a NEURAL voice (Online (Natural) / *Neural) — a
+         neural voice is always preferred over a robotic SAPI voice,
+         even over a named old voice; within neural voices the same
+         British-named preference order applies,
+      3. British/UK voices matching the calm-male preference list,
+      4. any English voice matching the preference list (e.g. David),
+      5. any English voice marked male (and not female),
+      6. any English voice that doesn't look female,
+      7. the first voice there is.
     The familiar default female voice (Zira) is therefore only ever a
     last resort, never the choice while a male English voice exists."""
     voices = list(voices or [])
@@ -364,22 +413,35 @@ def pick_voice(voices, name_contains=""):
         for v in voices:
             if want in (getattr(v, "name", "") or "").lower():
                 return v
-    for frag in VOICE_NAME_PREFERENCE:                    # 2: British + named
+    for frag in VOICE_NAME_PREFERENCE:                    # 2a: neural + British + named
+        for v in voices:
+            if (_voice_is_neural(v) and frag in (getattr(v, "name", "") or "").lower()
+                    and _voice_is_british(v)):
+                return v
+    for frag in VOICE_NAME_PREFERENCE:                    # 2b: neural + English + named
+        for v in voices:
+            if (_voice_is_neural(v) and frag in (getattr(v, "name", "") or "").lower()
+                    and _voice_is_english(v)):
+                return v
+    for v in voices:                                      # 2c: any neural English voice
+        if _voice_is_neural(v) and _voice_is_english(v):
+            return v
+    for frag in VOICE_NAME_PREFERENCE:                    # 3: British + named
         for v in voices:
             if frag in (getattr(v, "name", "") or "").lower() and _voice_is_british(v):
                 return v
-    for frag in VOICE_NAME_PREFERENCE:                    # 3: English + named
+    for frag in VOICE_NAME_PREFERENCE:                    # 4: English + named
         for v in voices:
             if frag in (getattr(v, "name", "") or "").lower() and _voice_is_english(v):
                 return v
-    for v in voices:                                      # 4: English male
+    for v in voices:                                      # 5: English male
         n = (getattr(v, "name", "") or "").lower()
         if _voice_is_english(v) and "male" in n and not _voice_looks_female(v):
             return v
-    for v in voices:                                      # 5: English, not female
+    for v in voices:                                      # 6: English, not female
         if _voice_is_english(v) and not _voice_looks_female(v):
             return v
-    return voices[0]                                      # 6: anything
+    return voices[0]                                      # 7: anything
 
 def _pick_voice(engine, name_contains=""):
     """Apply pick_voice() to a live pyttsx3 engine."""
@@ -425,6 +487,14 @@ class Speaker:
         self.voice_name_contains = str(voice_name_contains or "")
         # BUILD 19: voice picked per language, from Settings.
         self.voice_per_language = {}
+        # BUILD 20: edge-tts is the primary voice engine; SAPI is
+        # only the offline fallback. Hooks (tests only): _edge_tts_runner
+        # (cmd -> returncode) and _mp3_player (path -> None).
+        self.edge_tts_enabled = True
+        self._edge_tts_available_cached = None
+        self._edge_tts_runner = None
+        self._mp3_player = None
+        self._last_voice_engine = "pyttsx3 (SAPI)"
         try:
             rate = int(voice_rate)
         except (TypeError, ValueError):
@@ -490,12 +560,130 @@ class Speaker:
                 "queued": self._queue.pending() if self._queue is not None else 0}
 
     def voice_status(self):
-        return {"primary": "HUD speechSynthesis",
+        status = {"primary": "HUD speechSynthesis",
                 "backup": "pyttsx3" if TTS_OK else "pyttsx3 (unavailable)",
                 "backup_available": bool(TTS_OK and self.available),
                 "enabled": bool(self.enabled),
                 "queued": self._queue.pending() if self._queue is not None else 0,
                 "last_result": self._last_speak_result}
+        # BUILD 20: the Python backup now speaks via edge-tts first.
+        try:
+            status.update(self.voice_engine_status())
+        except Exception:  # noqa: BLE001
+            pass
+        return status
+
+    def voice_engine_status(self):
+        """BUILD 20: which voice engine will speak — edge-tts (neural,
+        primary) when available, else pyttsx3/SAPI (offline fallback)."""
+        available = self._edge_tts_available()
+        return {"engine": "edge-tts (Microsoft neural voices)" if available
+                else "pyttsx3 (SAPI)",
+                "edge_tts_available": bool(available),
+                "edge_tts_enabled": bool(self.edge_tts_enabled),
+                "fallback": "pyttsx3 (SAPI)",
+                "last_engine": self._last_voice_engine}
+
+    def _edge_tts_available(self):
+        """Is edge-tts installed (CLI or Python package)? Cached.
+        A test runner hook counts as available (tests fake it)."""
+        if self._edge_tts_runner is not None:
+            return True
+        if self._edge_tts_available_cached is not None:
+            return self._edge_tts_available_cached
+        available = False
+        try:
+            import shutil
+            if shutil.which("edge-tts"):
+                available = True
+        except Exception:  # noqa: BLE001
+            pass
+        if not available:
+            try:
+                import edge_tts  # noqa: F401
+                available = True
+            except Exception:  # noqa: BLE001
+                available = False
+        self._edge_tts_available_cached = available
+        return available
+
+    def _play_mp3(self, path):
+        """Play one MP3 file and wait until it finishes. Windows:
+        Windows Media Player via PowerShell (built in, no extra
+        install). Other platforms: playsound / ffplay / afplay.
+        A test hook (_mp3_player) replaces all of this."""
+        if self._mp3_player is not None:
+            return self._mp3_player(str(path))
+        import subprocess
+        if os.name == "nt":
+            ps = ("$p = New-Object -ComObject WMPlayer.OCX; "
+                  f"$p.URL = '{str(path)}'; $p.controls.play(); "
+                  "while ($p.playState -ne 1) { Start-Sleep -Milliseconds 200 }")
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                           check=True, timeout=300)
+            return
+        try:
+            import playsound  # noqa: F401
+            subprocess.run(["python", "-c",
+                            "import playsound,sys; playsound.playsound(sys.argv[1])",
+                            str(path)], check=True, timeout=300)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+        for player in ("ffplay", "mpv", "afplay"):
+            try:
+                import shutil
+                if shutil.which(player):
+                    args = [player, str(path)] if player != "ffplay" else [
+                        player, "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)]
+                    subprocess.run(args, check=True, timeout=300)
+                    return
+            except Exception:  # noqa: BLE001
+                continue
+        raise RuntimeError("no MP3 player available on this PC")
+
+    def _speak_via_edge_tts(self, text):
+        """BUILD 20: speak `text` with edge-tts (free Microsoft neural
+        voices). Returns True when it spoke, False when edge-tts is
+        unavailable / failed — the caller then falls back to SAPI.
+        Synthesises to a temp MP3, plays it, deletes it after."""
+        if not self.edge_tts_enabled or b20 is None:
+            return False
+        if not self._edge_tts_available():
+            return False
+        try:
+            picked = b20.edge_voice_for_text(
+                text, per_language=getattr(self, "voice_per_language", None) or {})
+            voice = picked.get("voice")
+            if not voice:
+                log_speak(picked.get("fallback_message", "")[:160])
+                return False
+            import subprocess
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+            out_path = tmp.name
+            tmp.close()
+            try:
+                cmd = b20.build_edge_tts_command(voice, text, out_path)
+                if self._edge_tts_runner is not None:
+                    rc = self._edge_tts_runner(cmd)
+                else:
+                    rc = subprocess.run(cmd, timeout=120).returncode
+                if rc != 0:
+                    raise RuntimeError(f"edge-tts exited with code {rc}")
+                if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+                    raise RuntimeError("edge-tts produced no audio file")
+                self._play_mp3(out_path)
+                self._last_voice_engine = f"edge-tts ({voice})"
+                return True
+            finally:
+                try:
+                    os.unlink(out_path)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception as e:  # noqa: BLE001 — edge-tts must never silence a reply
+            log_speak(b20.edge_tts_not_available_message(str(e))[:160])
+            return False
 
     def _get_engine(self):
         """BUILD 13: return the one reused engine, creating it once.
@@ -507,6 +695,15 @@ class Speaker:
         engine = pyttsx3.init()
         _pick_voice(engine, self.voice_name_contains)
         engine.setProperty("rate", self.voice_rate)
+        # BUILD 20: natural pitch/volume on the SAPI fallback too.
+        try:
+            engine.setProperty("volume", 1.0)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            engine.setProperty("pitch", 1.0)
+        except Exception:  # noqa: BLE001 — not every SAPI driver has pitch
+            pass
         self._engine = engine
         return engine
 
@@ -555,6 +752,16 @@ class Speaker:
                         break
                     self._on_state(True)
                     try:
+                        # BUILD 20: edge-tts is the PRIMARY voice —
+                        # free Microsoft neural voices (RyanNeural /
+                        # AsadNeural, …), not the old robotic SAPI
+                        # voice. If it is not installed / offline it
+                        # returns False and SAPI speaks instead, with
+                        # a plain Task-Log line — never pretending.
+                        if b20 is not None and self._speak_via_edge_tts(text):
+                            self._last_speak_result = "ok"
+                            log_speak(f"ok (edge-tts): {str(text)[:80]}")
+                            continue
                         engine = self._get_engine()
                         if engine is None:
                             raise RuntimeError("pyttsx3 engine unavailable")

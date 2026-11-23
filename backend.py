@@ -51,6 +51,9 @@ except Exception:  # noqa: BLE001 — pure-logic module, always present in the z
     b19 = None
 # BUILD 17 — TORVIS: CAMERA ACCESS, LOCAL ONLY, PHOTO IN H: DRIVE, NEVER STREAMED, NO FACE RECOGNITION, KALI VM TYPING, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 18 — TORVIS: CLAP WAKE, GESTURE CONTROL, HUD MODE, TASKBAR + TRAY, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
+# BUILD 20 — TORVIS: SILENT FALLBACK, NO OVERLOAD LINE, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
+BUILD20_MARKER = ("BUILD 20 — TORVIS: SILENT FALLBACK, NO OVERLOAD LINE, "
+                  "NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK")
 # BUILD 19 — TORVIS: FULL AUTOPILOT NO-CONFIRM, YOUTUBE AUTOPILOT, CHANNEL NICHE, SITE WATCHER, MULTILINGUAL VOICE, HUMAN-LIKE SPEAKING, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 16: pending calendar booking awaiting a spoken "confirm".
 # One at a time; confirming books it, anything else cancels it.
@@ -1983,6 +1986,13 @@ class Agent:
         }
         self._apply_provider(self._primary)
         self.on_tool = on_tool or (lambda _n, _d: None)
+        # BUILD 20: silent fallback — when the main brain fails and the
+        # fallback brain answers, the switch is recorded here (and
+        # logged via on_tool), NEVER prepended to the spoken/shown
+        # reply. Faizan heard "Main brain is overloaded…" first on
+        # every single answer; that line must never reach him again.
+        self.last_fallback_note = None
+        self.fallback_switch_count = 0
         self.history = []  # provider-neutral: {"role": "user"/"assistant", "text": ...}
         self.chat_history = None
         self.chat_summary = ""
@@ -2081,36 +2091,50 @@ class Agent:
                 # Ollama was sitting there ready (Faizan's Python
                 # research died after 3 steps on a Groq 503, 2026-10-26).
                 if quota:
-                    note = ("↪ Main brain's daily quota is finished — switched to "
-                            f"your fallback brain ({self.fallback['provider']}) "
+                    note = ("Main brain's daily quota is finished — switched to "
+                            f"the fallback brain ({self.fallback['provider']}) "
                             "for this reply.")
                 elif overloaded:
-                    note = ("↪ Main brain is overloaded right now — switched to "
-                            f"your fallback brain ({self.fallback['provider']}) "
+                    note = ("Main brain is overloaded right now — switched to "
+                            f"the fallback brain ({self.fallback['provider']}) "
                             "for this reply. I'll try the main brain again "
                             "on your next message.")
                 else:
-                    note = (f"⚠ {self.provider} unreachable — switched to the fallback brain "
+                    note = (f"{self.provider} unreachable — switched to the fallback brain "
                             f"({self.fallback['provider']}) for this reply. "
                             "I'll try the main brain again on your next message.")
+                # BUILD 20: record the switch SILENTLY — on the Agent
+                # and via the on_tool log hook — and return ONLY the
+                # fallback brain's answer. The note must never be
+                # prepended to the reply, or TORVIS speaks it aloud
+                # before every answer.
+                self.last_fallback_note = note
+                self.fallback_switch_count += 1
+                try:
+                    self.on_tool("fallback_switch", note)
+                except Exception:  # noqa: BLE001 — logging must never break a reply
+                    pass
                 self._apply_provider(self.fallback)
                 try:
-                    reply = note + "\n\n" + self._run_provider_loop()
+                    reply = self._run_provider_loop()
                 except RuntimeError as e2:  # noqa: BLE001
                     # The usual cause here is Ollama not actually being
                     # installed/running on this PC — the fallback is
                     # configured, but there is nothing listening on
                     # localhost:11434. Say that plainly, with both fixes,
-                    # instead of a raw "Could not reach" error.
+                    # instead of a raw "Could not reach" error. BUILD 20:
+                    # no fallback note prepended, no raw error dump.
                     if self.fallback.get("provider") == "ollama":
-                        reply = (note + "\n⚠ The fallback brain (Ollama) failed too — "
+                        reply = ("The fallback brain (Ollama) failed too — "
                                  "Ollama does not look installed or running on this PC. "
                                  "Fix (free API, no Ollama, no Groq): switch your main brain to Mistral "
                                  "in Settings — provider openai, base URL "
                                  "https://api.mistral.ai/v1, model "
                                  "mistral-medium-latest, with a Mistral key from console.mistral.ai.")
                     else:
-                        reply = (note + f"\n⚠ The fallback brain failed too: {e2}.")
+                        reply = ("Sorry — both brains failed on that one. "
+                                 "The main brain was overloaded and the fallback brain "
+                                 "could not answer either. Please try again in a moment.")
                 finally:
                     self._apply_provider(self._primary)
             elif quota:

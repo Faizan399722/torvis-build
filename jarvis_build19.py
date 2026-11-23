@@ -754,10 +754,17 @@ def pick_voice_for_language(available, language, per_language=None,
             if str(chosen).strip().lower() in _voice_text(v):
                 return _voice_name(v)
     wanted = VOICE_LANGUAGE_NAMES.get(lang, [])
-    for v in names:
-        text = _voice_text(v)
-        if any(w in text for w in wanted):
-            return _voice_name(v)
+    matches = [v for v in names
+               if any(w in _voice_text(v) for w in wanted)]
+    if matches:
+        # BUILD 20: among matching voices, a neural voice (Online
+        # (Natural) / *Neural) is always preferred over a robotic
+        # SAPI voice with the same locale.
+        def _is_neural(v):
+            t = _voice_text(v)
+            return ("neural" in t or "natural" in t or "online" in t)
+        matches.sort(key=lambda v: 0 if _is_neural(v) else 1)
+        return _voice_name(matches[0])
     if lang in ("urdu", "roman-urdu", "mixed"):
         return None  # never mispronounce Urdu with an English voice
     if lang == "english":

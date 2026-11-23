@@ -10,3 +10,4 @@ google-auth-oauthlib>=1.0
 google-auth-httplib2>=0.2
 pyautogui>=0.9
 opencv-python-headless>=4.8
+edge-tts>=7.0
