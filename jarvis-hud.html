@@ -356,6 +356,12 @@
     transition:all .25s;
   }
   #textFab:hover{box-shadow:0 0 32px rgba(0,229,255,.65), 0 8px 24px rgba(0,0,0,.5);transform:translateY(-2px);}
+  /* BUILD 21 fix 8: when the text box is open, the Text button must
+     NEVER sit on top of it. CSS fallback lifts it above the box
+     (same left offset); the JS positionTextFab() below measures the
+     real box height so it sits just above it, and returns it to
+     bottom-left (18px) when the box closes. */
+  body.text-open #textFab{bottom:120px;}
   #textFab[aria-pressed="true"]{background:var(--cyan);color:#04121c;}
   @media (max-width:980px){
     #textFab{left:12px;bottom:12px;padding:11px 16px;}
@@ -433,9 +439,9 @@
     </div>
     <div id="topBtns">
       <div class="chip" id="screenChip" title="Toggle screen watch"><span class="dot"></span>SCREEN WATCH: OFF</div>
-      <div class="chip" id="cameraChip" title="Toggle camera — off by default, local only, never streamed"><span class="dot"></span>CAMERA: OFF</div>
-      <div class="chip" id="clapChip" title="Toggle clap wake — off by default, double clap only, speech never wakes"><span class="dot"></span>CLAP WAKE: OFF</div>
-      <div class="chip" id="gestureChip" title="Toggle hand gestures — off by default, needs the camera on, local only"><span class="dot"></span>GESTURES: OFF</div>
+      <div class="chip" id="cameraChip" title="Camera is always on — local only, never streamed, no face recognition"><span class="dot"></span>CAMERA: ON</div>
+      <div class="chip" id="clapChip" title="Clap wake is always on — double clap only, speech never wakes"><span class="dot"></span>CLAP WAKE: ON</div>
+      <div class="chip" id="gestureChip" title="Hand gestures are always on — local only"><span class="dot"></span>GESTURES: ON</div>
       <div class="chip" id="hudModeChip" title="Toggle HUD mode — the full animated TORVIS HUD"><span class="dot"></span>HUD MODE: OFF</div>
       <div class="chip" id="autopilotChip" title="Toggle full autopilot — off by default, no confirm when on, protected list and own-stuff-only still apply"><span class="dot"></span>AUTOPILOT: OFF</div>
       <div class="chip" id="filesChip" title="Show the file explorer drawer">FILES</div>
@@ -517,7 +523,7 @@
 <div id="settingsPanel">
   <div id="settingsBox">
     <h2>⚙ TORVIS SETTINGS — BRAIN</h2>
-    <p style="color:#00E5FF;font-size:13px;letter-spacing:.15em;margin:0 0 10px;">BUILD 20 HUD — TORVIS: SILENT FALLBACK, NO OVERLOAD LINE, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK — if you do NOT see this line, you are still on an old exe, rebuild again.</p>
+    <p style="color:#00E5FF;font-size:13px;letter-spacing:.15em;margin:0 0 10px;">BUILD 21 HUD — TORVIS: FAST ANSWERS, CLEAR PRONUNCIATION, REMEMBERS TASKS, AUTO BRIEFING, ALWAYS ON, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK — if you do NOT see this line, you are still on an old exe, rebuild again.</p>
     <p style="color:#00E5FF;font-size:13px;letter-spacing:.15em;margin:0 0 10px;">BUILD 18 HUD — TORVIS: CLAP WAKE, GESTURE CONTROL, HUD MODE, TASKBAR + TRAY, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK</p>
     <p style="color:#00E5FF;font-size:13px;letter-spacing:.15em;margin:0 0 10px;">BUILD 17 HUD — TORVIS: CAMERA ACCESS, LOCAL ONLY, PHOTO IN H: DRIVE, NEVER STREAMED, NO FACE RECOGNITION, KALI VM TYPING, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK</p>
     <p style="color:var(--muted);font-size:12px;letter-spacing:.1em;margin:0 0 10px;">BUILD 15 — FULL CHAT MEMORY, GOOGLE CALENDAR, NEURAL VOICE, LOW LATENCY, NEVER SILENT, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK · BUILD 14 — VOICE FIXED, MEMORY, PROACTIVE, STREAMING, ROMAN URDU, PC CONTROL, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK</p>
@@ -532,14 +538,16 @@
     <label>Voice — neural voice name (blank = best available: Ryan / Guy / Aria Online Natural)</label><input id="setVoiceName" placeholder="Microsoft Ryan Online (Natural)">
     <label>Voice pitch (0.5 – 1.5, 1.0 = natural)</label><input id="setVoicePitch" placeholder="1.0">
     <p id="calendarStatus" style="color:var(--muted);font-size:14px;line-height:1.5;">Calendar: not checked yet. Google Calendar is read-only, OAuth only — connect it in Settings (one-time Google sign-in in your own browser). Gmail: read-only, same one-time sign-in.</p>
-    <label>Camera — off by default, local only, never streamed, no face recognition</label>
-    <div class="row"><button class="secondary" id="camToggleBtn">📷 CAMERA: OFF</button><button class="secondary" id="camTestBtn">TEST CAMERA</button></div>
+    <label>Camera — always on, local only, never streamed, no face recognition</label>
+    <div class="row"><span style="color:#00E5FF;font-size:14px;letter-spacing:.12em;">📷 CAMERA: ON (always on — no toggle)</span><button class="secondary" id="camTestBtn">TEST CAMERA</button></div>
     <p id="camStatus" style="color:var(--muted);font-size:14px;line-height:1.5;margin-top:8px;">Camera: off. Photos save only to H:\JARVIS-Work\Photos\. Video is never recorded without you saying 'confirm' first. If no camera is found, TORVIS says so plainly and never fakes a feed.</p>
-    <label>Clap wake — off by default, double clap only, speech never wakes</label>
-    <div class="row"><button class="secondary" id="clapToggleBtn">👏 CLAP WAKE: OFF</button><button class="secondary" id="gestureToggleBtn">✋ GESTURES: OFF</button><button class="secondary" id="hudModeToggleBtn">🟢 HUD MODE: OFF</button></div>
-    <label>Clap sensitivity (0.1 – 1.0, higher = easier to hear a clap)</label><input id="clapSensitivity" type="number" min="0.1" max="1" step="0.1" value="0.5">
+    <label>Clap wake + gestures — always on (double clap only, speech never wakes; gestures need the camera, which is also always on)</label>
+    <div class="row"><span style="color:#00E5FF;font-size:14px;letter-spacing:.12em;">👏 CLAP WAKE: ON · ✋ GESTURES: ON (always on — no toggle)</span><button class="secondary" id="hudModeToggleBtn">🟢 HUD MODE: OFF</button></div>
     <label>3D printer — hook only (OctoPrint URL, blank = no printer connected)</label><input id="octoprintUrl" placeholder="http://192.168.1.50:5000">
-    <p id="build18Status" style="color:var(--muted);font-size:14px;line-height:1.5;margin-top:8px;">Clap wake and gestures are off. Gestures need the camera on. No 3D printer connected — add an OctoPrint URL above if you have one. Minimising stays in the taskbar AND the tray — click the taskbar icon to bring TORVIS back.</p>
+    <p id="build18Status" style="color:var(--muted);font-size:14px;line-height:1.5;margin-top:8px;">Clap wake, gestures and camera are always on. No 3D printer connected — add an OctoPrint URL above if you have one. Minimising stays in the taskbar AND the tray — click the taskbar icon to bring TORVIS back.</p>
+    <label><input type="checkbox" id="autoBriefingChk" checked style="width:auto;"> Automatic briefing on startup — when TORVIS opens, it reminds you about your last tasks, due reminders and important emails (Settings only, no HUD button)</label>
+    <label>Whop API key (blank = keep saved key) — from your Whop Dashboard &gt; Developer. TORVIS uses it to list, create and upload to your Whop products straight from the H: drive, no browser file picker.</label><input id="whopApiKey" type="password" placeholder="">
+    <label>Gumroad access token (blank = keep saved token) — from Gumroad Settings &gt; Advanced &gt; Applications. TORVIS uses it to list, create and upload to your Gumroad products straight from the H: drive.</label><input id="gumroadToken" type="password" placeholder="">
     <label>Full autopilot — off by default, only you turn it on here. When it is on, TORVIS does NOT ask for confirm before doing things on your own PC and your own accounts. Posts and installs are hard to undo. The protected list, own-stuff-only, no-pay and no-delete-outside-H: limits still apply when it is on.</label>
     <div class="row"><button class="secondary" id="autopilotToggleBtn">🤖 AUTOPILOT: OFF</button><button class="secondary" id="ytAutopilotToggleBtn">▶️ YOUTUBE AUTOPILOT: OFF</button></div>
     <label>Voice per language — the native voice for each language (blank = best matching installed voice; ur-PK for Urdu/Roman Urdu)</label>
@@ -569,8 +577,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const state = {
   booted:false, interacted:false, voiceOn:true, voiceName:"", lastVoiceLatencyMs:null,
   micLive:false, simVolume:false, listening:false, speaking:false,
-  screenWatch:false, camera:false, camStream:null, awaitingCommand:false, recogWarned:false, queueNotes:0,
-  clapWake:false, gestures:false, hudMode:false, lastGesture:"",
+  screenWatch:false, camera:true, camStream:null, awaitingCommand:false, recogWarned:false, queueNotes:0,
+  clapWake:true, gestures:true, hudMode:false, lastGesture:"",
   autopilot:false, youtubeAutopilot:false, voicePerLanguage:{}, watchedSites:[],
   lastSearchQuestion:null,       // last question the demo could not answer
   volume:0,                       // 0..1 audio level driving orb breathing
@@ -1299,7 +1307,6 @@ function paintCameraChip(on){
   chip.classList.toggle("cam-on", !!on);
   chip.innerHTML = '<span class="dot"></span>CAMERA: ' + (on ? "ON" : "OFF");
   const ind = $("camIndicator"); if (ind) ind.classList.toggle("on", !!on);
-  const btn = $("camToggleBtn"); if (btn) btn.textContent = "📷 CAMERA: " + (on ? "ON" : "OFF");
   const st = $("camStatus");
   if (st) st.textContent = on
     ? "Camera: ON — local only, never streamed. Photos save only to H:\\JARVIS-Work\\Photos\. Video is never recorded without you saying 'confirm' first."
@@ -1312,13 +1319,11 @@ function paintClapChip(on){
   const chip = $("clapChip"); if (!chip) return;
   chip.classList.toggle("on", !!on);
   chip.innerHTML = '<span class="dot"></span>CLAP WAKE: ' + (on ? "ON" : "OFF");
-  const btn = $("clapToggleBtn"); if (btn) btn.textContent = "👏 CLAP WAKE: " + (on ? "ON" : "OFF");
 }
 function paintGestureChip(on){
   const chip = $("gestureChip"); if (!chip) return;
   chip.classList.toggle("on", !!on);
   chip.innerHTML = '<span class="dot"></span>GESTURES: ' + (on ? "ON" : "OFF");
-  const btn = $("gestureToggleBtn"); if (btn) btn.textContent = "✋ GESTURES: " + (on ? "ON" : "OFF");
   const ind = $("gestureIndicator"); if (ind) ind.textContent = "✋ GESTURES: " + (on ? "ON — open palm wakes · swipe next/previous · pinch selects · fist stops" : "OFF");
 }
 function paintHudModeChip(on){
@@ -1818,22 +1823,42 @@ async function processCommand(raw){
 /* ---------------- controls ---------------- */
 $("sendBtn").addEventListener("click", () => {
   const v = $("cmdInput").value;
-  if (v.trim()){ userLine(v); processCommand(v); }
+  /* BUILD 21 auto-stop: sending a message stops the old speech
+     mid-sentence on its own — no STOP SPEAKING click needed. */
+  if (v.trim()){ stopSpeaking(); userLine(v); processCommand(v); }
 });
 /* ---------------- BUILD 20 — Text button toggles the text box ----------------
    The text/command box is HIDDEN by default and only appears when the
    floating "Text" button (bottom left) is clicked. Click again, the ✕
    button, or Escape to hide it. */
+/* BUILD 21 fix 8: keep the floating Text button OUT of the text
+   box. Open: move it just above the box (same left offset).
+   Closed: back to bottom-left, 18px from the bottom. The CSS rule
+   above is the fallback; this measures the real box so the gap is
+   exact at any window size. */
+function positionTextFab(){
+  const fab = $("textFab"); if (!fab) return;
+  if (document.body.classList.contains("text-open")){
+    const bar = $("bottombar");
+    const gap = bar ? (window.innerHeight - bar.getBoundingClientRect().top) + 12 : 120;
+    fab.style.bottom = gap + "px";
+  } else {
+    fab.style.bottom = "18px";
+  }
+}
 function showTextBox(){
   document.body.classList.add("text-open");
   $("textFab").setAttribute("aria-pressed", "true");
+  positionTextFab();
   const input = $("cmdInput");
   if (input) input.focus();
 }
 function hideTextBox(){
   document.body.classList.remove("text-open");
   $("textFab").setAttribute("aria-pressed", "false");
+  positionTextFab();
 }
+window.addEventListener("resize", positionTextFab);
 function toggleTextBox(){
   if (document.body.classList.contains("text-open")) hideTextBox();
   else showTextBox();
@@ -1847,7 +1872,7 @@ document.addEventListener("keydown", e => {
 $("cmdInput").addEventListener("keydown", e => {
   if (e.key === "Enter"){
     const v = $("cmdInput").value;
-    if (v.trim()){ userLine(v); processCommand(v); }
+    if (v.trim()){ stopSpeaking(); userLine(v); processCommand(v); }
   }
 });
 $("micBtn").addEventListener("click", () => {
@@ -1856,12 +1881,10 @@ $("micBtn").addEventListener("click", () => {
   else enableMic();
 });
 $("screenChip").addEventListener("click", () => setScreenWatch(!state.screenWatch));
-$("cameraChip").addEventListener("click", () => setCamera(!state.camera));
-$("clapChip").addEventListener("click", () => setClapWake(!state.clapWake));
-$("gestureChip").addEventListener("click", () => setGestures(!state.gestures));
+/* BUILD 21: camera / clap wake / gestures chips are indicators
+   only — always on, no click toggle. Screen watch and HUD mode
+   still toggle, autopilot still toggles (off by default). */
 $("hudModeChip").addEventListener("click", () => setHudMode(!state.hudMode));
-$("clapToggleBtn").addEventListener("click", () => setClapWake(!state.clapWake));
-$("gestureToggleBtn").addEventListener("click", () => setGestures(!state.gestures));
 $("hudModeToggleBtn").addEventListener("click", () => setHudMode(!state.hudMode));
 $("autopilotToggleBtn").addEventListener("click", () => setAutopilot(!state.autopilot));
 $("ytAutopilotToggleBtn").addEventListener("click", () => setYoutubeAutopilot(!state.youtubeAutopilot));
@@ -1906,7 +1929,6 @@ $("siteCheckBtn").addEventListener("click", async () => {
 });
 $("filesChip").addEventListener("click", () => { $("leftPanel").classList.toggle("drawer-open"); $("rightPanel").classList.remove("drawer-open"); });
 $("logChip").addEventListener("click", () => { $("rightPanel").classList.toggle("drawer-open"); $("leftPanel").classList.remove("drawer-open"); });
-$("camToggleBtn").addEventListener("click", () => setCamera(!state.camera));
 $("camTestBtn").addEventListener("click", async () => {
   const api = nativeApi();
   if (api && typeof api.native_test_camera === "function"){
@@ -1928,10 +1950,13 @@ $("settingsBtn").addEventListener("click", async () => {
       $("setVoiceName").value = s.voice_name || "";
       $("setVoicePitch").value = (s.voice_pitch != null ? s.voice_pitch : 1.0);
       $("calendarStatus").textContent = "Calendar: " + (s.calendar_connected ? "connected (read-only, Google Calendar)." : "not connected yet — one-time Google sign-in in your own browser, read-only.") + " Gmail: " + (s.gmail_connected ? "connected (read-only)." : "not connected yet.");
-      if (typeof s.camera_enabled !== "undefined"){ state.camera = !!s.camera_enabled; paintCameraChip(state.camera); if (state.camera) startCameraPreview(); }
-      if (typeof s.clap_wake_enabled !== "undefined"){ state.clapWake = !!s.clap_wake_enabled; paintClapChip(state.clapWake); }
-      if (typeof s.clap_sensitivity !== "undefined"){ $("clapSensitivity").value = s.clap_sensitivity; }
-      if (typeof s.gestures_enabled !== "undefined"){ state.gestures = !!s.gestures_enabled; paintGestureChip(state.gestures); }
+      /* BUILD 21: camera / clap wake / gestures are always on — the
+         saved values are only read to paint the indicators ON. */
+      state.camera = true; paintCameraChip(true); startCameraPreview();
+      state.clapWake = true; paintClapChip(true);
+      state.gestures = true; paintGestureChip(true);
+      if (typeof s.auto_briefing_enabled !== "undefined"){ $("autoBriefingChk").checked = !!s.auto_briefing_enabled; }
+      $("whopApiKey").value = ""; $("gumroadToken").value = "";
       if (typeof s.hud_mode !== "undefined"){ state.hudMode = !!s.hud_mode; paintHudModeChip(state.hudMode); }
       if (typeof s.octoprint_url !== "undefined"){ $("octoprintUrl").value = s.octoprint_url || ""; }
       if (typeof s.autopilot_enabled !== "undefined"){ state.autopilot = !!s.autopilot_enabled; paintAutopilotChip(state.autopilot); }
@@ -1992,9 +2017,9 @@ $("setSaveBtn").addEventListener("click", async () => {
     provider: $("setProvider").value, base_url: $("setBaseUrl").value, model: $("setModel").value,
     api_key: $("setApiKey").value,
     voice_name: $("setVoiceName").value, voice_pitch: $("setVoicePitch").value,
-    camera_enabled: state.camera,
-    clap_wake_enabled: state.clapWake, clap_sensitivity: $("clapSensitivity").value,
-    gestures_enabled: state.gestures, hud_mode: state.hudMode,
+    auto_briefing_enabled: $("autoBriefingChk").checked,
+    whop_api_key: $("whopApiKey").value, gumroad_access_token: $("gumroadToken").value,
+    hud_mode: state.hudMode,
     octoprint_url: $("octoprintUrl").value,
     autopilot_enabled: state.autopilot, youtube_autopilot_enabled: state.youtubeAutopilot,
     voice_per_language: {urdu: $("voiceUrdu").value, english: $("voiceEnglish").value, hindi: $("voiceHindi").value},

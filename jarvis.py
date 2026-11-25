@@ -70,6 +70,11 @@ try:
 except Exception:  # noqa: BLE001 — pure-logic module, always present in the zip
     b20 = None
 
+try:
+    import jarvis_build21 as b21
+except Exception:  # noqa: BLE001 — pure-logic module, always present in the zip
+    b21 = None
+
 # ------------------------------------------------------------------ files ---
 def bundled_file(filename):
     """Path to a file bundled into the .exe (PyInstaller _MEIPASS) or
@@ -107,9 +112,15 @@ DEFAULTS = {"provider": "anthropic", "api_key": "", "model": "", "base_url": "",
             "voice_name": "", "voice_pitch": 1.0,
             "wake_word_enabled": False,
             "pause_threshold": 0.8, "listening_sensitivity": 0.5,
-            "camera_enabled": False,
-            "clap_wake_enabled": False, "clap_sensitivity": 0.5,
-            "gestures_enabled": False, "hud_mode_on": False,
+            # BUILD 21: camera / clap wake / gestures are ALWAYS ON —
+            # no toggle, no "turn it on first". Screen Watch stays OFF
+            # (privacy + quota); autopilot stays OFF (Faizan turns it
+            # on himself); wake word stays as he left it.
+            "camera_enabled": True,
+            "clap_wake_enabled": True, "clap_sensitivity": 0.5,
+            "gestures_enabled": True, "hud_mode_on": False,
+            "auto_briefing_enabled": True,
+            "whop_api_key": "", "gumroad_access_token": "",
             "octoprint_url": "",
             "autopilot_enabled": False, "youtube_autopilot_enabled": False,
             "voice_per_language": {},
@@ -121,6 +132,7 @@ VOICE_RATE_DEFAULT = 150   # BUILD 20: slower, clearer pronunciation
 VOICE_RATE_MIN, VOICE_RATE_MAX = 120, 220
 SCREEN_WATCH_MIN_INTERVAL = 30     # seconds — never look more often
 SCREEN_WATCH_DEFAULT_INTERVAL = 90
+# BUILD 21 — TORVIS: FAST ANSWERS, CLEAR PRONUNCIATION, REMEMBERS TASKS, AUTO BRIEFING, ALWAYS ON, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 20 — TORVIS: SILENT FALLBACK, NO OVERLOAD LINE, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 19 — TORVIS: FULL AUTOPILOT NO-CONFIRM, YOUTUBE AUTOPILOT, CHANNEL NICHE, SITE WATCHER, MULTILINGUAL VOICE, HUMAN-LIKE SPEAKING, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 18 — TORVIS: CLAP WAKE, GESTURE CONTROL, HUD MODE, TASKBAR + TRAY, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
@@ -187,6 +199,17 @@ def load_config():
     cfg["model"] = migrate_model_name(cfg.get("model"))
     cfg["protected_paths"] = [str(x) for x in (cfg.get("protected_paths") or [])]
     cfg["voice_enabled"] = bool(cfg.get("voice_enabled", True))
+    # BUILD 21 migration: a saved config from BUILD 20 or earlier has
+    # camera/clap/gestures OFF — force them ON at load, because
+    # Faizan wants them always on and there is no toggle any more.
+    # A saved auto_briefing_enabled=False is respected (he can turn
+    # the briefing off in Settings); new installs get it ON.
+    cfg["camera_enabled"] = True
+    cfg["clap_wake_enabled"] = True
+    cfg["gestures_enabled"] = True
+    cfg["auto_briefing_enabled"] = bool(cfg.get("auto_briefing_enabled", True))
+    cfg["whop_api_key"] = str(cfg.get("whop_api_key") or "")
+    cfg["gumroad_access_token"] = str(cfg.get("gumroad_access_token") or "")
     cfg["voice_name_contains"] = str(cfg.get("voice_name_contains") or "")
     try:
         rate = int(cfg.get("voice_rate", VOICE_RATE_DEFAULT))
@@ -511,6 +534,7 @@ class Speaker:
         # only "failed" makes it speak the reply itself, so a working
         # Python voice is never doubled.
         self._last_speak_result = None
+        self.barge_in_clear = None   # BUILD 21: JarvisApp sets this to clear the barge-in flag
         self._engine = None          # BUILD 13: ONE reused engine
         self._last_speak_started = None  # monotonic time say() was called
 
@@ -534,6 +558,24 @@ class Speaker:
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
         log_speak(f"queued: {str(text)[:80]}")
+
+    def say_interrupt(self, text):
+        """BUILD 21 auto-stop: a new message interrupts the old one
+        mid-sentence — stop the current utterance, clear the queue,
+        then enqueue the new text. The STOP SPEAKING button is only
+        a backup now; it must never be required."""
+        self.stop_speaking()
+        if self.barge_in_clear is not None:
+            try:
+                self.barge_in_clear()
+            except Exception:  # noqa: BLE001
+                pass
+        self.say(text)
+
+    def last_voice_report(self):
+        """BUILD 21: which engine + voice actually spoke last — the
+        proof edge-tts spoke, or the plain admission SAPI did."""
+        return self._last_voice_engine
 
     def stop_speaking(self):
         """BUILD 14 interrupt: clear the queue and stop the current
@@ -643,44 +685,67 @@ class Speaker:
         raise RuntimeError("no MP3 player available on this PC")
 
     def _speak_via_edge_tts(self, text):
-        """BUILD 20: speak `text` with edge-tts (free Microsoft neural
-        voices). Returns True when it spoke, False when edge-tts is
-        unavailable / failed — the caller then falls back to SAPI.
-        Synthesises to a temp MP3, plays it, deletes it after."""
+        """BUILD 20/21: speak `text` with edge-tts (free Microsoft neural
+        voices). BUILD 21: Roman Urdu is transliterated to Urdu script
+        first (the ur-PK voice is trained on Urdu script — Latin
+        letters made it read Roman Urdu as English gibberish), and the
+        text goes as SSML with explicit voice + prosody. If SSML is
+        rejected, plain transliterated text is retried once before
+        the SAPI fallback. Returns True when it spoke, False when
+        edge-tts is unavailable / failed."""
         if not self.edge_tts_enabled or b20 is None:
             return False
         if not self._edge_tts_available():
             return False
         try:
+            language = b21.detect_language(text) if b21 is not None else "english"
+            prepared = (b21.prepare_for_tts(text, language) if b21 is not None
+                        else {"text": text, "rate": "-10%", "language": language,
+                              "transliterated": 0})
+            speak_text = prepared["text"]
             picked = b20.edge_voice_for_text(
-                text, per_language=getattr(self, "voice_per_language", None) or {})
+                speak_text, per_language=getattr(self, "voice_per_language", None) or {})
             voice = picked.get("voice")
             if not voice:
                 log_speak(picked.get("fallback_message", "")[:160])
                 return False
             import subprocess
             import tempfile
-            tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-            out_path = tmp.name
-            tmp.close()
-            try:
-                cmd = b20.build_edge_tts_command(voice, text, out_path)
-                if self._edge_tts_runner is not None:
-                    rc = self._edge_tts_runner(cmd)
-                else:
-                    rc = subprocess.run(cmd, timeout=120).returncode
-                if rc != 0:
-                    raise RuntimeError(f"edge-tts exited with code {rc}")
-                if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
-                    raise RuntimeError("edge-tts produced no audio file")
-                self._play_mp3(out_path)
-                self._last_voice_engine = f"edge-tts ({voice})"
-                return True
-            finally:
+            locale = {"urdu": "ur-PK", "roman-urdu": "ur-PK",
+                      "mixed": "ur-PK"}.get(str(language).lower(), "en-GB")
+            ssml = (b21.build_edge_ssml(speak_text, voice, rate=prepared["rate"], lang=locale)
+                    if b21 is not None else None)
+            for attempt_text in ([ssml, speak_text] if ssml else [speak_text]):
+                tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                out_path = tmp.name
+                tmp.close()
                 try:
-                    os.unlink(out_path)
-                except Exception:  # noqa: BLE001
-                    pass
+                    if self._edge_tts_runner is not None:
+                        cmd = b20.build_edge_tts_command(voice, attempt_text, out_path)
+                        rc = self._edge_tts_runner(cmd)
+                    else:
+                        cmd = ["edge-tts", "--voice", str(voice),
+                               "--rate", str(prepared["rate"]),
+                               "--file", str(out_path), "--text", str(attempt_text)]
+                        rc = subprocess.run(cmd, timeout=120).returncode
+                    if rc != 0:
+                        raise RuntimeError(f"edge-tts exited with code {rc}")
+                    if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+                        raise RuntimeError("edge-tts produced no audio file")
+                    self._play_mp3(out_path)
+                    self._last_voice_engine = f"edge-tts ({voice})"
+                    if b21 is not None:
+                        log_speak(b21.voice_spoken_report("edge-tts", voice)[:160])
+                    return True
+                except Exception as e:  # noqa: BLE001 — SSML retry, then SAPI
+                    log_speak(f"edge-tts attempt failed ({e}); retrying plain text"[:160])
+                    continue
+                finally:
+                    try:
+                        os.unlink(out_path)
+                    except Exception:  # noqa: BLE001
+                        pass
+            return False
         except Exception as e:  # noqa: BLE001 — edge-tts must never silence a reply
             log_speak(b20.edge_tts_not_available_message(str(e))[:160])
             return False
@@ -789,7 +854,15 @@ class Speaker:
                         engine.say(text)
                         engine.runAndWait()  # BUILD 13: NO engine.stop() here
                         self._last_speak_result = "ok"
-                        log_speak(f"ok: {str(text)[:80]}")
+                        # BUILD 21: name the SAPI voice that actually
+                        # spoke, so a silent edge-tts -> SAPI fallback
+                        # can never hide in the log.
+                        try:
+                            _v = engine.getProperty("voice")
+                        except Exception:  # noqa: BLE001
+                            _v = ""
+                        self._last_voice_engine = f"pyttsx3 (SAPI, voice={_v})"
+                        log_speak(f"ok (SAPI fallback): {str(text)[:80]}")
                     except Exception as e:  # noqa: BLE001 — engine failed once:
                         self._dispose_engine()
                         self._last_speak_result = "failed"
@@ -1051,6 +1124,12 @@ class JsApi:
         only *said* it opened and anything else fell through to
         'No matching routine'. Returns the calm reply text for the
         HUD to display; speaking is done here so it is not doubled."""
+        # BUILD 21 auto-stop: a typed message stops the old speech
+        # mid-sentence on its own — no STOP SPEAKING click needed.
+        try:
+            self._app.speaker.stop_speaking()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             reply = self._app._get_agent().chat(str(text))
         except Exception as e:  # noqa: BLE001
@@ -1450,11 +1529,19 @@ class JsApi:
             "voice_rate": int(cfg.get("voice_rate", VOICE_RATE_DEFAULT)),
             "calendar_connected": bool((getattr(self._app, "calendar_status", lambda: {})() or {}).get("connected")) if b15 is not None else False,
             "gmail_connected": bool((getattr(self._app, "gmail_status", lambda: {})() or {}).get("connected")) if b15 is not None else False,
-            "camera_enabled": bool(getattr(self._app, "camera", None) and self._app.camera.enabled) if b17 is not None else False,
-            "camera_status": (self._app.camera_status() if b17 is not None and getattr(self._app, "camera", None) is not None else {"enabled": False, "available": None, "status_text": "camera not available in this build", "indicator": "CAMERA: OFF"}),
-            "clap_wake_enabled": bool(getattr(self._app, "clap_wake", None) and self._app.clap_wake.enabled) if b18 is not None else False,
-            "clap_sensitivity": float(getattr(self._app, "clap_wake", None).sensitivity) if b18 is not None and getattr(self._app, "clap_wake", None) is not None else 0.5,
-            "gestures_enabled": bool(getattr(self._app, "gestures", None) and self._app.gestures.enabled) if b18 is not None else False,
+            # BUILD 21: camera / clap wake / gestures are ALWAYS ON —
+            # Settings reports them as indicators only, never as
+            # on/off switches (there is no toggle any more).
+            "camera_enabled": True,
+            "camera_status": (self._app.camera_status() if b17 is not None and getattr(self._app, "camera", None) is not None else {"enabled": True, "available": None, "status_text": "camera always on in this build", "indicator": "CAMERA: ON"}),
+            "clap_wake_enabled": True,
+            "gestures_enabled": True,
+            "auto_briefing_enabled": bool(self._app.config.get("auto_briefing_enabled", True)),
+            "whop_api_key_saved": bool(self._app.config.get("whop_api_key")),
+            "gumroad_access_token_saved": bool(self._app.config.get("gumroad_access_token")),
+            "last_voice_engine": (self._app.speaker.last_voice_report()
+                                  if hasattr(self._app.speaker, "last_voice_report")
+                                  else "pyttsx3 (SAPI)"),
             "hud_mode": bool(getattr(self._app, "hud_mode", None) and self._app.hud_mode.hud_mode) if b18 is not None else False,
             "octoprint_url": str(getattr(self._app, "printer", None).octoprint_url) if b18 is not None and getattr(self._app, "printer", None) is not None else "",
             "autopilot_enabled": bool(getattr(self._app, "autopilot", None) and self._app.autopilot.enabled) if b19 is not None else False,
@@ -1494,37 +1581,24 @@ class JsApi:
                     cfg["voice_pitch"] = max(0.5, min(1.5, float(data["voice_pitch"])))
                 except (TypeError, ValueError):
                     pass
-            if "camera_enabled" in data:
-                # BUILD 17: store the preference; the state flag follows
-                # it without probing (probing happens on test/take-photo).
-                cfg["camera_enabled"] = bool(data["camera_enabled"])
-                try:
-                    if getattr(self._app, "camera", None) is not None:
-                        if bool(data["camera_enabled"]):
-                            self._app.camera.enable()
-                        else:
-                            self._app.camera.disable()
-                except Exception:  # noqa: BLE001 — best-effort
-                    pass
-            if "clap_wake_enabled" in data and b18 is not None:
-                # BUILD 18: clap wake OFF by default; sensitivity too.
-                cfg["clap_wake_enabled"] = bool(data["clap_wake_enabled"])
-                try:
-                    self._app.set_clap_wake(bool(data["clap_wake_enabled"]))
-                except Exception:  # noqa: BLE001 — best-effort
-                    pass
-            if "clap_sensitivity" in data and b18 is not None:
-                try:
-                    cfg["clap_sensitivity"] = self._app.set_clap_sensitivity(
-                        data["clap_sensitivity"]).get("sensitivity", 0.5)
-                except Exception:  # noqa: BLE001 — best-effort
-                    pass
-            if "gestures_enabled" in data and b18 is not None:
-                cfg["gestures_enabled"] = bool(data["gestures_enabled"])
-                try:
-                    self._app.set_gestures(bool(data["gestures_enabled"]))
-                except Exception:  # noqa: BLE001 — best-effort
-                    pass
+            # BUILD 21: camera / clap wake / gestures are always on —
+            # any saved OFF value from an old Settings form is ignored.
+            cfg["camera_enabled"] = True
+            cfg["clap_wake_enabled"] = True
+            cfg["gestures_enabled"] = True
+            if "auto_briefing_enabled" in data:
+                cfg["auto_briefing_enabled"] = bool(data["auto_briefing_enabled"])
+            if str(data.get("whop_api_key") or "").strip():
+                cfg["whop_api_key"] = str(data["whop_api_key"]).strip()
+            if str(data.get("gumroad_access_token") or "").strip():
+                cfg["gumroad_access_token"] = str(data["gumroad_access_token"]).strip()
+            # Refresh the backend's account keys after a key change.
+            try:
+                import backend as _be
+                _be.set_account_keys(cfg.get("whop_api_key", ""),
+                                     cfg.get("gumroad_access_token", ""))
+            except Exception:  # noqa: BLE001 — best-effort
+                pass
             if "hud_mode" in data and b18 is not None:
                 cfg["hud_mode_on"] = bool(data["hud_mode"])
                 try:
@@ -1657,15 +1731,19 @@ class JarvisApp:
         self.voice_quality = b15.VoiceQualityTracker() if b15 is not None else None
         self.barge_in = b16.BargeIn() if b16 is not None else None
         self.daily_stats = b16.DailyStats() if b16 is not None else None
-        # BUILD 17: camera — OFF by default, local only, never streamed.
-        self.camera = b17.CameraState(enabled=bool(config.get("camera_enabled", False))) if b17 is not None else None
-        # BUILD 18: clap wake + gestures — both OFF by default; HUD mode
-        # starts normal; the 3D printer is a hook only (no printer set).
+        # BUILD 21: camera / clap wake / gestures are ALWAYS ON —
+        # enabled here no matter what an old saved config says (the
+        # load_config migration does the same for configs read from
+        # disk). Camera is still local only, never streamed.
+        self.camera = b17.CameraState(enabled=True) if b17 is not None else None
+        # BUILD 18: clap wake + gestures — always on since BUILD 21;
+        # HUD mode starts normal; the 3D printer is a hook only (no
+        # printer set).
         self.clap_wake = b18.ClapWakeState(
-            enabled=bool(config.get("clap_wake_enabled", False)),
+            enabled=True,
             sensitivity=config.get("clap_sensitivity", 0.5)) if b18 is not None else None
         self.gestures = b18.GestureState(
-            enabled=bool(config.get("gestures_enabled", False))) if b18 is not None else None
+            enabled=True) if b18 is not None else None
         self.hud_mode = b18.HudModeState(
             mode="hud" if config.get("hud_mode_on") else "normal") if b18 is not None else None
         self.printer = b18.PrinterState(
@@ -1687,6 +1765,25 @@ class JarvisApp:
         self._camera_advisor = None  # test hook: callable(b64 jpeg) -> description
         self._last_spoken_reply = ""
         self._alerted_meetings = set()
+        # BUILD 21: auto-briefing once per startup; command generation
+        # so a newer question makes an older in-flight reply stale
+        # (it is never spoken after the new question).
+        self._auto_briefing_done = False
+        self._command_generation = 0
+        try:
+            self.speaker.barge_in_clear = (
+                lambda: self.barge_in.clear() if self.barge_in is not None else None)
+        except Exception:  # noqa: BLE001
+            pass
+        # BUILD 21: Whop/Gumroad keys from Settings / .env, for the
+        # backend tools. Never printed, never logged.
+        try:
+            import backend as _be
+            _keys = _be.set_account_keys(
+                self.config.get("whop_api_key", ""),
+                self.config.get("gumroad_access_token", ""))
+        except Exception:  # noqa: BLE001
+            pass
         self._reminder_thread = None
         self.watcher = ScreenWatcher(
             capture=backend.capture_screen_b64,
@@ -1963,6 +2060,40 @@ class JarvisApp:
             return b15.format_startup_briefing(datetime.now(), meetings, connected,
                                                due, facts, tasks, last_work)
         return b14.format_morning_briefing(datetime.now(), due, facts, tasks)
+
+    def startup_briefing(self):
+        """BUILD 21: the automatic briefing spoken + shown once per
+        startup — last work, open tasks, due reminders, today's
+        meetings, and latest emails (or a plain 'Gmail not connected
+        yet' line — never invented mail). Short, under ~30 seconds."""
+        if b21 is None:
+            return self.morning_briefing()
+        from datetime import datetime
+        due = [i["text"] for i in self.reminders.due()] if self.reminders else []
+        tasks = self.memory.tasks() if self.memory else []
+        last_work = self.what_were_we_working_on() if b15 is not None else ""
+        meetings_text = ""
+        if b15 is not None and self.calendar is not None:
+            res = self.calendar.fetch_today_events()
+            meetings_text = b15.format_todays_schedule(
+                res["events"] if res.get("ok") else [], datetime.now().date(),
+                bool(res.get("ok")))
+        gmail = None
+        if self.gmail is not None:
+            try:
+                gst = self.gmail.status()
+                if gst.get("connected"):
+                    fetched = self.gmail.fetch_latest(count=3)
+                    gmail = {"connected": True, "ok": bool(fetched.get("ok")),
+                             "messages": fetched.get("messages") or [],
+                             "error": fetched.get("error") or ""}
+                else:
+                    gmail = {"connected": False}
+            except Exception:  # noqa: BLE001
+                gmail = {"connected": False}
+        return b21.build_startup_briefing(
+            last_work, tasks, due, meetings_text, gmail,
+            when_str=datetime.now().strftime("%A %d %B %Y"))
 
     def check_due_reminders(self):
         """Speak + show any reminders whose time has come (once each),
@@ -2452,6 +2583,19 @@ class JarvisApp:
         worker thread, show the reply in the HUD, speak it clamped to
         at most 4 sentences. The user only ever sees the calm message —
         raw error details go to jarvis.log, never the screen."""
+        # BUILD 21 auto-stop: a new question stops the old answer
+        # mid-sentence, on its own — no STOP SPEAKING click needed.
+        # The generation counter makes an older in-flight reply stale:
+        # if a newer command started while this one was thinking, this
+        # one never speaks its reply.
+        self._command_generation += 1
+        _my_generation = self._command_generation
+        try:
+            self.speaker.stop_speaking()
+        except Exception:  # noqa: BLE001
+            pass
+        if self.barge_in is not None:
+            self.barge_in.clear()
         if self.voice_quality is not None:
             self.voice_quality.start_request()
         # BUILD 19: autopilot / site-watcher commands are handled
@@ -2540,6 +2684,18 @@ class JarvisApp:
                 self.voice_quality.record_reply_spoken(spoken, fully=True)
             return
         self._last_spoken_reply = spoken
+        # BUILD 21: sync the app's memory copy with what the brain
+        # just saved (tasks auto-extracted in backend.chat), and drop
+        # a stale reply — a newer question arrived while this one was
+        # thinking, so speaking it now would answer the wrong question.
+        if self.memory is not None:
+            try:
+                self.memory.load()
+            except Exception:  # noqa: BLE001
+                pass
+        if _my_generation != self._command_generation:
+            self.hud.log("[VOICE] Skipped a stale reply — a newer question came in, Sir.")
+            return
         # BUILD 16: speak in chunks — first chunk immediately (low
         # latency), rest in queue order; stop at once if interrupted.
         chunks = b16.speak_chunks(spoken) if b16 is not None else [spoken]
@@ -2601,6 +2757,11 @@ class JarvisApp:
         # a silent reply is diagnosable from this one screen.
         lines.append("[SELF-CHECK] Voice primary: HUD speechSynthesis — "
                      "speaks every reply the HUD shows.")
+        lines.append("[SELF-CHECK] Voice backup: edge-tts neural first, "
+                     "SAPI fallback — last spoke with: "
+                     f"{self.speaker.last_voice_report()}.")
+        lines.append("[SELF-CHECK] Always on: camera, clap wake, gestures "
+                     "— no toggle needed. Screen Watch is OFF by default.")
         if TTS_OK and self.speaker.available:
             lines.append("[SELF-CHECK] Voice backup: pyttsx3 ready — "
                          "speaks when the HUD is hidden or speechSynthesis fails.")
@@ -2750,6 +2911,12 @@ class JarvisApp:
                             pass
                     self.speaker.say("Yes, Sir?")
                 elif kind == "wake_command":
+                    # BUILD 21 auto-stop: speaking to TORVIS stops the
+                    # old speech mid-sentence on its own.
+                    try:
+                        self.speaker.stop_speaking()
+                    except Exception:  # noqa: BLE001
+                        pass
                     self.hud.wake_heard(payload)
                     threading.Thread(target=self._run_command,
                                      args=(payload,), daemon=True).start()
@@ -2803,11 +2970,29 @@ class JarvisApp:
             self.self_check()
         except Exception as e:  # noqa: BLE001 — even the check is guarded
             log_error("self_check", e)
-        # BUILD 14 proactive: morning briefing once at startup, then
-        # the reminder checker keeps watching in the background.
+        # BUILD 21: always-on features are enabled at startup (no
+        # toggle any more) — clap wake, gestures, camera (best effort:
+        # no camera on the PC just logs plainly, never blocks startup).
+        for _enable in ("clap_wake", "gestures", "camera"):
+            try:
+                if _enable == "clap_wake":
+                    self.set_clap_wake(True)
+                elif _enable == "gestures":
+                    self.set_gestures(True)
+                else:
+                    self.set_camera(True)
+            except Exception as e:  # noqa: BLE001
+                log_error("always_on", e)
+        # BUILD 14/21 proactive: the startup briefing is SPOKEN and
+        # shown once per session (BUILD 20 only wrote it to the log,
+        # so Faizan never heard it), then the reminder checker keeps
+        # watching in the background.
         try:
-            briefing = self.morning_briefing()
-            self.hud.log("🌅 " + briefing)
+            if self.config.get("auto_briefing_enabled", True) and not self._auto_briefing_done:
+                self._auto_briefing_done = True
+                briefing = self.startup_briefing()
+                self.hud.log("🌅 " + briefing)
+                self.speaker.say(clamp_for_speech(briefing))
             self.check_due_reminders()
         except Exception as e:  # noqa: BLE001
             log_error("briefing", e)

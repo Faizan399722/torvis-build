@@ -49,11 +49,19 @@ try:
     import jarvis_build19 as b19
 except Exception:  # noqa: BLE001 — pure-logic module, always present in the zip
     b19 = None
+
+try:
+    import jarvis_build21 as b21
+except Exception:  # noqa: BLE001 — pure-logic module, always present in the zip
+    b21 = None
 # BUILD 17 — TORVIS: CAMERA ACCESS, LOCAL ONLY, PHOTO IN H: DRIVE, NEVER STREAMED, NO FACE RECOGNITION, KALI VM TYPING, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 18 — TORVIS: CLAP WAKE, GESTURE CONTROL, HUD MODE, TASKBAR + TRAY, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 20 — TORVIS: SILENT FALLBACK, NO OVERLOAD LINE, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 BUILD20_MARKER = ("BUILD 20 — TORVIS: SILENT FALLBACK, NO OVERLOAD LINE, "
                   "NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK")
+BUILD21_MARKER = ("BUILD 21 — TORVIS: FAST ANSWERS, CLEAR PRONUNCIATION, "
+                  "REMEMBERS TASKS, AUTO BRIEFING, ALWAYS ON, NO GROQ, "
+                  "NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK")
 # BUILD 19 — TORVIS: FULL AUTOPILOT NO-CONFIRM, YOUTUBE AUTOPILOT, CHANNEL NICHE, SITE WATCHER, MULTILINGUAL VOICE, HUMAN-LIKE SPEAKING, NO GROQ, NO OLLAMA, MISTRAL MAIN, GEMINI LITE FALLBACK
 # BUILD 16: pending calendar booking awaiting a spoken "confirm".
 # One at a time; confirming books it, anything else cancels it.
@@ -80,6 +88,33 @@ _PRINTER_STATE = None
 _AUTOPILOT_STATE = None
 _SITE_WATCHER = None
 TEST_YOUTUBE_VIDEOS = "unset"
+# BUILD 21: Whop/Gumroad keys — set by jarvis.py from Settings /
+# H:\JARVIS-Work\.env at startup (set_account_keys), or read from
+# the .env file on demand. Never printed, never logged.
+_ACCOUNT_KEYS = None
+
+
+def set_account_keys(whop_api_key="", gumroad_access_token=""):
+    """Store Whop/Gumroad keys for this process (tests + jarvis.py)."""
+    global _ACCOUNT_KEYS
+    _ACCOUNT_KEYS = {"whop_api_key": str(whop_api_key or ""),
+                     "gumroad_access_token": str(gumroad_access_token or "")}
+    return _ACCOUNT_KEYS
+
+
+def _account_keys(config=None):
+    r"""Whop/Gumroad keys: explicit override, else config, else the
+    H:\JARVIS-Work\.env file, else the environment. Never logs values."""
+    if _ACCOUNT_KEYS is not None:
+        return dict(_ACCOUNT_KEYS)
+    if b21 is None:
+        return {"whop_api_key": "", "gumroad_access_token": ""}
+    try:
+        from pathlib import Path as _P
+        env_file = _P("H:/JARVIS-Work/.env")
+    except Exception:  # noqa: BLE001
+        env_file = None
+    return b21.load_account_keys(config or {}, env_file=env_file)
 
 
 def _clap_state():
@@ -1465,6 +1500,149 @@ def tool_click_at(a):
         return {"ok": False, "error": "PC control module is missing, Sir."}
     return b14.click_at(a.get("x"), a.get("y"))
 
+
+# ------------------------------------------------- BUILD 21: Whop + Gumroad ---
+# Real account work via the official APIs — files are read straight
+# from the H: drive and uploaded with presigned URLs, so there is NO
+# browser file picker involved and NO "cannot upload" refusal. Keys
+# come from Settings / H:\JARVIS-Work\.env (never chat, never
+# printed). Every mutating call is verified with a fresh GET — the
+# reply reports the real product ID / live URL, never "done" on a
+# guess. Safety: no auto-paying, no deleting a product without the
+# user naming that exact product in that moment.
+
+def _whop_client():
+    if b21 is None:
+        return None, {"ok": False, "error": "Whop module is missing, Sir."}
+    keys = _account_keys()
+    return b21.WhopClient(keys.get("whop_api_key") or ""), None
+
+
+def _gumroad_client():
+    if b21 is None:
+        return None, {"ok": False, "error": "Gumroad module is missing, Sir."}
+    keys = _account_keys()
+    return b21.GumroadClient(keys.get("gumroad_access_token") or ""), None
+
+
+def tool_whop_list_products(a):
+    client, err = _whop_client()
+    if err:
+        return err
+    return client.list_products()
+
+
+def tool_whop_create_product(a):
+    client, err = _whop_client()
+    if err:
+        return err
+    title = str(a.get("title") or a.get("name") or "").strip()
+    headline = str(a.get("headline") or "")
+    description = str(a.get("description") or "")
+    try:
+        price = int(a.get("price_cents") or 0)
+    except (TypeError, ValueError):
+        price = 0
+    res = client.create_product(title, headline, description, price)
+    if not res.get("ok"):
+        return res
+    return _ok(**res)
+
+
+def tool_whop_upload_file(a):
+    """Upload a file from the H: drive to Whop and attach it to a
+    product. Args: file (H: path, required), product_id (required).
+    Returns the real file id + verified product."""
+    client, err = _whop_client()
+    if err:
+        return err
+    file_path = str(a.get("file") or a.get("path") or "").strip()
+    product_id = str(a.get("product_id") or "").strip()
+    if not file_path:
+        return {"ok": False, "error": "Tell me which file to upload, Sir — an H: drive path, e.g. H:\\JARVIS-Work\\my-product.zip."}
+    if not product_id:
+        return {"ok": False, "error": "Tell me which Whop product to attach it to, Sir — a product ID, or create the product first."}
+    up = client.upload_file(file_path)
+    if not up.get("ok"):
+        return up
+    file_id = (up.get("file") or {}).get("id") or ""
+    attach = client.attach_file_to_product(product_id, file_id)
+    verified = client.get_product(product_id)
+    out = {"ok": bool(attach.get("ok")), "file": up.get("file"),
+           "product": (verified.get("product") if verified.get("ok") else {"id": product_id}),
+           "attach": attach}
+    if not attach.get("ok"):
+        out["ok"] = False
+        out["error"] = attach.get("error", "Whop would not attach the file, Sir.")
+        out["note"] = attach.get("note", "")
+    return out
+
+
+def tool_whop_product_status(a):
+    client, err = _whop_client()
+    if err:
+        return err
+    return client.get_product(str(a.get("product_id") or "").strip())
+
+
+def tool_gumroad_list_products(a):
+    client, err = _gumroad_client()
+    if err:
+        return err
+    return client.list_products()
+
+
+def tool_gumroad_create_product(a):
+    client, err = _gumroad_client()
+    if err:
+        return err
+    name = str(a.get("name") or a.get("title") or "").strip()
+    description = str(a.get("description") or "")
+    try:
+        price = int(a.get("price_cents") or 0)
+    except (TypeError, ValueError):
+        price = 0
+    res = client.create_product(name, price, description)
+    if not res.get("ok"):
+        return res
+    return _ok(**res)
+
+
+def tool_gumroad_upload_file(a):
+    """Upload a file from the H: drive to a Gumroad product (presign
+    -> PUT -> complete) and attach it, then verify with a fresh GET.
+    Args: file (H: path, required), product_id (required),
+    publish (optional, default False)."""
+    client, err = _gumroad_client()
+    if err:
+        return err
+    file_path = str(a.get("file") or a.get("path") or "").strip()
+    product_id = str(a.get("product_id") or "").strip()
+    if not file_path:
+        return {"ok": False, "error": "Tell me which file to upload, Sir — an H: drive path, e.g. H:\\JARVIS-Work\\my-product.zip."}
+    if not product_id:
+        return {"ok": False, "error": "Tell me which Gumroad product to attach it to, Sir — a product ID, or create the product first."}
+    up = client.upload_file(file_path)
+    if not up.get("ok"):
+        return up
+    file_url = up.get("file_url") or ""
+    if not file_url:
+        return {"ok": False, "error": "Gumroad took the file but gave no file URL back, Sir — the upload did not complete."}
+    updated = client.update_product(product_id, publish=bool(a.get("publish")),
+                                    file_url=file_url)
+    if not updated.get("ok"):
+        return {"ok": False, "error": updated.get("error", "Gumroad would not attach the file, Sir."),
+                "file_url": file_url}
+    return {"ok": True, "file_url": file_url, "product": updated.get("product")}
+
+
+def tool_gumroad_product_status(a):
+    client, err = _gumroad_client()
+    if err:
+        return err
+    return client.get_product(str(a.get("product_id") or "").strip())
+
+
 TOOLS = {
     "system_info":  (tool_system_info,  "Get information about this computer: OS, user, home folder, disk space.", {}),
     "list_files":   (tool_list_files,   "List files and folders in a directory.", {"path": "Directory path (optional, defaults to home)"}),
@@ -1500,6 +1678,14 @@ TOOLS = {
     "book_meeting": (tool_book_meeting, "BUILD 16: book a calendar event — TWO-STEP: first call returns the plan only, call confirm_meeting with confirmed=true ONLY after the user says 'confirm'.", {"text": "e.g. 'Book a meeting with Ali tomorrow at 3pm for 30 minutes'"}),
     "confirm_meeting": (tool_confirm_meeting, "BUILD 16: confirm (confirmed=true) or cancel the pending calendar booking.", {"confirmed": "Set to true ONLY after the user said confirm"}),
     "check_my_status": (tool_check_my_status, "BUILD 16: one status briefing — today's calendar, reminders, open tasks, Gmail unread count, last work.", {}),
+    "whop_list_products": (tool_whop_list_products, "BUILD 21: list your Whop products via the official Whop API (needs your Whop API key in Settings or H:\\JARVIS-Work\\.env). No browser file picker — files upload straight from the H: drive.", {}),
+    "whop_create_product": (tool_whop_create_product, "BUILD 21: create a Whop product via the official API — title, headline, description, price in cents.", {"title": "Product name", "headline": "Short headline (optional)", "description": "Description (optional)", "price_cents": "Price in cents, e.g. 2900 for $29 (optional)"}),
+    "whop_upload_file": (tool_whop_upload_file, "BUILD 21: upload a file from the H: drive to Whop and attach it to a product via the official API — no browser file picker, no 'cannot upload' refusal. Verified with a fresh product fetch.", {"file": "H: drive path, e.g. H:\\JARVIS-Work\\my-product.zip", "product_id": "Whop product ID"}),
+    "whop_product_status": (tool_whop_product_status, "BUILD 21: fetch one Whop product from the API to verify it is live.", {"product_id": "Whop product ID"}),
+    "gumroad_list_products": (tool_gumroad_list_products, "BUILD 21: list your Gumroad products via the official v2 API (needs your Gumroad access token in Settings or H:\\JARVIS-Work\\.env).", {}),
+    "gumroad_create_product": (tool_gumroad_create_product, "BUILD 21: create a Gumroad product draft via the official API.", {"name": "Product name", "price_cents": "Price in cents, e.g. 2400 for $24 (optional)", "description": "Description (optional)"}),
+    "gumroad_upload_file": (tool_gumroad_upload_file, "BUILD 21: upload a file from the H: drive to a Gumroad product via the official API (presign -> PUT -> complete) and attach it, verified with a fresh fetch. Set publish=true to go live.", {"file": "H: drive path, e.g. H:\\JARVIS-Work\\my-product.zip", "product_id": "Gumroad product ID", "publish": "true to publish (optional)"}),
+    "gumroad_product_status": (tool_gumroad_product_status, "BUILD 21: fetch one Gumroad product from the API to verify it is live, with its URL.", {"product_id": "Gumroad product ID"}),
     "voice_quality_report": (tool_voice_quality_report, "BUILD 16: Voice Quality report — replies spoken fully, average latency to first spoken word, tasks done/failed, recent failures.", {}),
     "handoff_to_muse": (tool_handoff_to_muse, "BUILD 16: hand this task to Muse — save the full context to TASK-STATUS.md in H:\\JARVIS-Work\\ so it can be picked up elsewhere.", {"task": "What we were doing", "summary": "Last chat summary (optional)"}),
     "security_check_ports": (tool_security_check_ports, "BUILD 16 ethical security: check open ports on YOUR OWN PC only (localhost). Refuses any other host.", {"host": "localhost (only your own PC)"}),
@@ -1590,6 +1776,10 @@ SYSTEM_PROMPT = (
     "BUILD 19: FULL AUTOPILOT — both autopilot toggles are OFF by default and only Faizan turns them on in Settings. When master autopilot is ON (autopilot_status / enable_autopilot), do NOT ask for confirm before doing things on his own PC and his own accounts — installs from official sources only, YouTube and other own-account posts/uploads, Kali VM commands, file operations in the H: drive. When it is OFF, every confirm gate works as before. YouTube autopilot (enable_youtube_autopilot) is the same for YouTube only. HARD LIMITS even in autopilot: NEVER touch a protected file (skip it, say so, continue); NEVER scan/hack/access anyone else's system, network, account or website without their written permission; NEVER pay for anything; NEVER delete files outside the H: drive without the user naming that exact file in that moment. Use analyze_youtube_channel to find the best niche for HIS channel from real views/likes (never invent channel data — if YouTube is not connected, say so plainly), make_youtube_caption for caption + hashtags, and youtube_autopilot_post for caption + upload in one go (video must be on the H: drive). Use watch_site / list_watched_sites / site_status to watch his sites — checking is read-only and never needs a confirm. Meeting alerts (15 minutes before, from Google Calendar) are notifications, never actions — they never need a confirm, in autopilot or not. "
     "BUILD 19: MULTILINGUAL VOICE — detect the language of each reply (Urdu, Roman Urdu, English, Hindi, French, Spanish, German, Turkish, Arabic and more) and speak it with the matching native neural voice when one is installed (ur-PK for Urdu/Roman Urdu, en-GB/en-US for English, matching locale for the rest). If that locale is not installed, fall back to the default voice and say so plainly — never force an English voice on Urdu text (pronunciation_status lists what is actually installed; voice_per_language in Settings picks a voice per language). "
     "BUILD 19: HUMAN-LIKE SPEAKING — sound like a person talking, not a robot: short natural sentences (1–3), natural pauses, no robotic filler, never read code or a URL aloud, warm tone matching the conversation, speech interruptible at any time. NEVER claim to be human, and NEVER hide that you are TORVIS when asked directly — if the user asks 'are you human?', answer plainly that you are TORVIS, an AI assistant that tries to sound natural. "
+    "BUILD 21: answer FAST — short chat gets one quick call, 1-3 short sentences, first sentence first; never make the user wait through retries. "
+    "BUILD 21: Whop and Gumroad are handled with the whop_*/gumroad_* tools via their official APIs, reading files straight from the H: drive — no browser file picker is ever needed, so NEVER say you cannot upload. "
+    "If a Whop/Gumroad key is missing, say plainly ONCE which key is missing and where to put it (Settings), then stop that one step — never refuse the whole task and never invent a product, price or upload. "
+    "BUILD 21: the camera, clap wake and gestures are ALWAYS ON — never tell the user to turn them on, there is no toggle for them. "
     "Reply in the same language the user used: English, Roman Urdu, or Urdu — never switch their mix. "
     "Keep replies concise and clear. When a tool fails, say what happened and suggest the next step. "
     f"This computer runs {platform.system()} and the user's home folder is {Path.home()}. "
@@ -1722,7 +1912,7 @@ class TransientModelError(RuntimeError):
 
 _TRANSIENT_CODES = {429, 500, 503}
 _TRANSIENT_STATUSES = ("RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL")
-_RETRY_WAITS = (2, 5, 10)    # seconds waited before attempts 2, 3, 4
+_RETRY_WAITS = (1, 2)        # BUILD 21: was (2, 5, 10) — up to 17s of waiting on an overloaded brain before the fallback even started; now at most 3s
 
 _sleep = time.sleep          # injectable so tests never really sleep
 
@@ -2057,12 +2247,55 @@ class Agent:
     def chat(self, user_text):
         if b14 is not None:
             self.language = b14.detect_language(user_text)
+        # BUILD 21: reload memory + chat history from disk at the
+        # start of EVERY chat. The Agent used to build its own
+        # MemoryStore/ChatHistoryStore once at construction, so tasks
+        # added after that (by the app, by a tool, by an earlier
+        # turn) were invisible to the brain until the agent was
+        # recreated — the "doesn't remember my tasks" bug.
+        if self.memory is not None:
+            try:
+                self.memory.load()
+            except Exception:  # noqa: BLE001
+                pass
+        if self.chat_history is not None:
+            try:
+                self.chat_history.load()
+            except Exception:  # noqa: BLE001
+                pass
+        # BUILD 21: auto-remember tasks the user states in plain
+        # words — "I have to call Ali", "mujhe kal report karni hai".
+        # Waiting for the brain to call remember_this was the other
+        # half of the memory bug: it usually never called it.
+        if b21 is not None and self.memory is not None:
+            try:
+                for _task in b21.extract_tasks_from_text(user_text):
+                    self.memory.remember_task(_task)
+            except Exception:  # noqa: BLE001
+                pass
         self.history.append({"role": "user", "text": user_text})
         if self.chat_history is not None:
             try:
                 self.chat_history.add("user", user_text)
             except Exception:  # noqa: BLE001
                 pass
+        # BUILD 21 fast path: short everyday chat gets ONE quick
+        # call (no tools, 300 tokens) instead of the full tool loop.
+        # If it fails, fall through to the normal loop + fallback.
+        try:
+            _fast = self._fast_chat(user_text)
+        except Exception:  # noqa: BLE001
+            _fast = None
+        if _fast is not None:
+            reply = _fast
+            self.history.append({"role": "assistant", "text": reply})
+            if self.chat_history is not None:
+                try:
+                    self.chat_history.add("assistant", reply)
+                    self.chat_summary = self.chat_history.summary
+                except Exception:  # noqa: BLE001
+                    pass
+            return reply
         try:
             reply = self._run_provider_loop()
         except RuntimeError as e:  # noqa: BLE001
@@ -2208,6 +2441,37 @@ class Agent:
              "max_tokens": 120},
             timeout=VISION_HTTP_TIMEOUT)
         return (data["choices"][0]["message"].get("content") or "").strip()
+
+    def _fast_chat(self, user_text):
+        """BUILD 21: one quick no-tools call for short everyday chat.
+        Returns the reply string, or None when the fast path does not
+        apply (tool words, long text, Anthropic provider) — the
+        caller then uses the normal tool loop. A transient failure
+        also returns None so the normal loop + fallback can run."""
+        if b21 is None or not b21.is_fast_chat(user_text):
+            return None
+        if self.provider == "anthropic":
+            return None
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        msgs = [{"role": "system",
+                 "content": self._system_prompt() + b21.FAST_SYSTEM_SUFFIX}]
+        for h in self.history:
+            msgs.append({"role": h["role"], "content": h["text"]})
+        try:
+            data = _http_json(self.base_url.rstrip("/") + "/chat/completions",
+                              headers,
+                              {"model": self.model, "messages": msgs,
+                               "max_tokens": b21.fast_chat_max_tokens()},
+                              timeout=60)
+        except (TransientModelError, RuntimeError):
+            return None
+        try:
+            text = (data["choices"][0]["message"].get("content") or "").strip()
+        except (KeyError, IndexError, TypeError):
+            return None
+        return text or None
 
     def _run_provider_loop(self):
         return self._anthropic_loop() if self.provider == "anthropic" else self._openai_loop()
