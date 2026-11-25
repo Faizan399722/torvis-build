@@ -172,6 +172,14 @@
   {
    "optionDest": "collect_all",
    "value": "edge_tts"
+  },
+  {
+   "optionDest": "datas",
+   "value": "jarvis_build21.py;."
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "jarvis_build21"
   }
  ],
  "nonPyinstallerOptions": {

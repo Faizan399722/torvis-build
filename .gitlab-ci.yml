@@ -1,0 +1,23 @@
+# TORVIS BUILD 19 — GitLab CI (Windows)
+# Same build as GitHub Actions, but on GitLab where the free artifact
+# limit is 1 GB (GitHub Free is 0.5 GB and was full).
+# Pipeline runs on push to main and on manual Run pipeline.
+stages:
+  - build
+
+build-jarvis-exe:
+  stage: build
+  tags:
+    - windows
+  image: python:3.12
+  script:
+    - python -m pip install --upgrade pip
+    - pip install -r requirements.txt
+    - pyinstaller --noconfirm --onefile --windowed --name JARVIS --icon icon.ico --add-data "jarvis-hud.html;." --add-data "icon.ico;." --add-data "icon.png;." --add-data "backend.py;." --add-data "jarvis_build14.py;." --add-data "jarvis_build15.py;." --add-data "jarvis_build16.py;." --add-data "jarvis_build17.py;." --add-data "jarvis_build18.py;." --add-data "jarvis_build19.py;." --add-data "jarvis_build20.py;." --add-data "jarvis_build21.py;." --add-data "requirements.txt;." --collect-all webview --collect-all pystray --collect-all pyttsx3 --hidden-import pyttsx3.drivers.sapi5 --hidden-import speech_recognition --hidden-import pyaudio --hidden-import pystray --hidden-import comtypes --hidden-import PIL --hidden-import cv2 --hidden-import googleapiclient.discovery --hidden-import googleapiclient.http --hidden-import google.oauth2.credentials --hidden-import google_auth_oauthlib.flow --hidden-import pyautogui --hidden-import backend --hidden-import jarvis_build14 --hidden-import jarvis_build15 --hidden-import jarvis_build16 --hidden-import jarvis_build17 --hidden-import jarvis_build18 --hidden-import jarvis_build19 --hidden-import jarvis_build20 --hidden-import jarvis_build21 --hidden-import edge_tts jarvis.py
+  artifacts:
+    name: JARVIS-exe
+    paths:
+      - dist/JARVIS.exe
+    expire_in: 30 days
+  only:
+    - main
